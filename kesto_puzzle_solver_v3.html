@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kesto 每日挑戰網頁版求解器 (無限制運算版)</title>
+    <style>
+        :root {
+            --bg-color: #f7f9fc;
+            --container-bg: #ffffff;
+            --primary-color: #4a90e2;
+            --primary-hover: #357abd;
+            --wall-color: #2c3e50;
+            --block-color: #3498db;
+            --target-color: #e74c3c;
+            --text-color: #2c3e50;
+            --border-color: #dcdde1;
+        }
+
+        * {
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            touch-action: manipulation;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: var(--container-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            font-size: 24px;
+            color: #1a1a1a;
+        }
+
+        p.desc {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 25px;
+        }
+
+        .warning-text {
+            color: #d35400;
+            font-size: 12px;
+            text-align: center;
+            margin-top: -15px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        /* 控制面板 */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: space-between;
+            align-items: center;
+            background: #f1f2f6;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        label {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        select, input[type="number"] {
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+
+        /* 工具列 */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 25px;
+            justify-content: center;
+        }
+
+        .tool-btn {
+            padding: 10px 16px;
+            border: 2px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #f8f9fa;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            background: #e9ecef;
+        }
+
+        .tool-btn.active {
+            border-color: var(--primary-color);
+            background: #e3fafc;
+            color: #0b7285;
+        }
+
+        .dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            display: inline-block;
+        }
+        .dot.wall { background-color: var(--wall-color); }
+        .dot.block { background-color: var(--block-color); }
+        .dot.target { background-color: var(--target-color); border-radius: 50%; }
+        .dot.eraser { background-color: #fff; border: 1px dashed #999; }
+
+        /* 遊戲網格系統 */
+        .grid-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 25px;
+            touch-action: none;
+        }
+
+        .grid {
+            display: grid;
+            gap: 4px;
+            background-color: #cfd8dc;
+            padding: 6px;
+            border-radius: 8px;
+            user-select: none;
+        }
+
+        .cell {
+            background-color: #ffffff;
+            aspect-ratio: 1;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+            transition: background-color 0.1s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cell.type-wall { background-color: var(--wall-color); }
+        .cell.type-block::after {
+            content: "";
+            width: 75%;
+            height: 75%;
+            background-color: var(--block-color);
+            border-radius: 6px;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.2);
+            position: absolute;
+            z-index: 2;
+        }
+        .cell.type-target::before {
+            content: "";
+            width: 40%;
+            height: 40%;
+            background-color: var(--target-color);
+            border-radius: 50%;
+            position: absolute;
+            z-index: 1;
+        }
+        .cell.type-block.type-target::after {
+            border: 3px solid #f1c40f;
+        }
+
+        /* 動作按鈕 */
+        .action-btns {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 25px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-solve { background-color: #2ecc71; color: white; }
+        .btn-solve:hover { background-color: #27ae60; }
+        .btn-clear { background-color: #e74c3c; color: white; }
+        .btn-clear:hover { background-color: #c0392b; }
+
+        /* 結果顯示區 */
+        .result-box {
+            background: #f8f9fa;
+            border-left: 5px solid var(--primary-color);
+            padding: 15px 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .result-box.error {
+            border-left-color: var(--target-color);
+            background: #fff5f5;
+        }
+
+        .result-box h3 { margin-top: 0; margin-bottom: 10px; font-size: 16px; }
+
+        .path-sequence {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .path-step {
+            background: #e3fafc;
+            color: #0b7285;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 14px;
+            border: 1px solid #99e9f2;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Kesto 關卡可視化最佳解計算器</h1>
+    <p class="desc">請在下方設定盤面尺寸，利用工具列在網格上畫出關卡（單步移動規則），最後點擊「開始計算最優解！」即可找出最短步數與路線。</p>
+    <p class="warning-text">⚠️ 提示：已移除運算限制。若遇到極端複雜或「無解」的盤面，瀏覽器可能會卡頓直到運算完成。</p>
+
+    <!-- 尺寸控制 -->
+    <div class="controls">
+        <div class="control-group">
+            <label for="grid-width">寬度 (欄):</label>
+            <input type="number" id="grid-width" min="3" max="10" value="5">
+        </div>
+        <div class="control-group">
+            <label for="grid-height">高度 (列):</label>
+            <input type="number" id="grid-height" min="3" max="10" value="5">
+        </div>
+        <button id="btn-resize" style="padding: 6px 12px; cursor:pointer; background:#fff; border:1px solid #ccc; border-radius:4px;">變更大小</button>
+    </div>
+
+    <!-- 畫筆工具列 -->
+    <div class="toolbar">
+        <button class="tool-btn active" data-tool="wall"><span class="dot wall"></span> 放置牆壁 (Wall)</button>
+        <button class="tool-btn" data-tool="block"><span class="dot block"></span> 放置方塊 (Block)</button>
+        <button class="tool-btn" data-tool="target"><span class="dot target"></span> 放置目標 (Target)</button>
+        <button class="tool-btn" data-tool="eraser"><span class="dot eraser"></span> 橡皮擦 (Eraser)</button>
+    </div>
+
+    <!-- 網格 -->
+    <div class="grid-wrapper">
+        <div id="puzzle-grid" class="grid"></div>
+    </div>
+
+    <!-- 圖例說明 -->
+    <div class="legend">
+        <div class="legend-item"><span class="dot wall"></span> 深色：牆壁</div>
+        <div class="legend-item"><span class="dot block"></span> 藍色方塊：可移動箱子</div>
+        <div class="legend-item"><span class="dot target"></span> 紅色圓點：目標終點</div>
+    </div>
+
+    <!-- 執行按鈕 -->
+    <div class="action-btns" style="margin-top: 25px;">
+        <button id="btn-solve" class="btn btn-solve">開始計算最優解！</button>
+        <button id="btn-clear" class="btn btn-clear">清空盤面</button>
+    </div>
+
+    <!-- 結果 -->
+    <div id="result-box" class="result-box">
+        <h3 id="result-title">計算結果</h3>
+        <div id="result-content"></div>
+    </div>
+</div>
+
+<script>
+    let width = 5;
+    let height = 5;
+    let currentTool = 'wall';
+    let isDrawing = false; 
+    let gridData = {};
+
+    const gridEl = document.getElementById('puzzle-grid');
+    const widthInput = document.getElementById('grid-width');
+    const heightInput = document.getElementById('grid-height');
+    const resultBox = document.getElementById('result-box');
+    const resultContent = document.getElementById('result-content');
+    const resultTitle = document.getElementById('result-title');
+
+    function initGridData() {
+        gridData = {};
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                gridData[`${r},${c}`] = { wall: false, block: false, target: false };
+            }
+        }
+    }
+
+    function buildGridDOM() {
+        gridEl.innerHTML = '';
+        gridEl.style.gridTemplateColumns = `repeat(${width}, 50px)`;
+        
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.id = `cell-${r}-${c}`;
+                
+                cell.addEventListener('pointerdown', (e) => {
+                    e.preventDefault(); 
+                    isDrawing = true;
+                    handleCellClick(r, c, true);
+                    cell.releasePointerCapture(e.pointerId); 
+                });
+
+                cell.addEventListener('pointerenter', (e) => {
+                    if (isDrawing) {
+                        handleCellClick(r, c, false);
+                    }
+                });
+
+                gridEl.appendChild(cell);
+            }
+        }
+    }
+
+    document.addEventListener('pointerup', () => { isDrawing = false; });
+
+    function updateGridUI() {
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                const cell = document.getElementById(`cell-${r}-${c}`);
+                const state = gridData[`${r},${c}`];
+                
+                cell.className = 'cell';
+                if (state.wall) cell.classList.add('type-wall');
+                if (state.block) cell.classList.add('type-block');
+                if (state.target) cell.classList.add('type-target');
+            }
+        }
+    }
+
+    function handleCellClick(r, c, isClick) {
+        const state = gridData[`${r},${c}`];
+        if (currentTool === 'wall') {
+            state.wall = isClick ? !state.wall : true;
+            if (state.wall) { state.block = false; state.target = false; }
+        } else if (currentTool === 'block') {
+            if (!state.wall) state.block = isClick ? !state.block : true;
+        } else if (currentTool === 'target') {
+            if (!state.wall) state.target = isClick ? !state.target : true;
+        } else if (currentTool === 'eraser') {
+            state.wall = false; state.block = false; state.target = false;
+        }
+        updateGridUI();
+    }
+
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            const targetBtn = e.currentTarget;
+            targetBtn.classList.add('active');
+            currentTool = targetBtn.dataset.tool;
+        });
+    });
+
+    document.getElementById('btn-resize').addEventListener('click', () => {
+        let w = parseInt(widthInput.value);
+        let h = parseInt(heightInput.value);
+        if (w >= 3 && w <= 10 && h >= 3 && h <= 10) {
+            width = w; height = h;
+            initGridData(); buildGridDOM(); updateGridUI();
+            resultBox.style.display = 'none';
+        } else {
+            alert('寬度與高度限制在 3 到 10 之間。');
+        }
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+        initGridData(); updateGridUI(); resultBox.style.display = 'none';
+    });
+    
+    function sortBlocks(blocks, direction) {
+        blocks.sort((a, b) => {
+            if (direction === 'Up') return a.r - b.r;
+            if (direction === 'Down') return b.r - a.r;
+            if (direction === 'Left') return a.c - b.c;
+            if (direction === 'Right') return b.c - a.c;
+            return 0;
+        });
+    }
+
+    function serializeState(blocks) {
+        let copy = blocks.map(b => `${b.r},${b.c}`);
+        copy.sort(); return copy.join('|');
+    }
+
+    function moveBlocks(blocks, direction, dr, dc, walls) {
+        let sorted = blocks.map(b => ({r: b.r, c: b.c}));
+        sortBlocks(sorted, direction);
+
+        let currentPositions = new Set(blocks.map(b => `${b.r},${b.c}`));
+        let newBlocks = [];
+
+        for (let b of sorted) {
+            currentPositions.delete(`${b.r},${b.c}`);
+            let next_r = b.r + dr;
+            let next_c = b.c + dc;
+
+            if (next_r >= 0 && next_r < height && next_c >= 0 && next_c < width &&
+                !walls.has(`${next_r},${next_c}`) &&
+                !currentPositions.has(`${next_r},${next_c}`)) {
+                newBlocks.push({r: next_r, c: next_c});
+                currentPositions.add(`${next_r},${next_c}`);
+            } else {
+                newBlocks.push({r: b.r, c: b.c});
+                currentPositions.add(`${b.r},${b.c}`);
+            }
+        }
+        return newBlocks;
+    }
+
+    // 核心演算法：已移除迭代次數限制
+    function solveKesto() {
+        let walls = new Set();
+        let targets = new Set();
+        let startBlocks = [];
+
+        for (let r = 0; r < height; r++) {
+            for (let c = 0; c < width; c++) {
+                let state = gridData[`${r},${c}`];
+                if (state.wall) walls.add(`${r},${c}`);
+                if (state.target) targets.add(`${r},${c}`);
+                if (state.block) startBlocks.push({r, c});
+            }
+        }
+
+        if (startBlocks.length === 0 || targets.size === 0) {
+            showResult(false, "錯誤：請至少在盤面上放置一個「方塊」與一個「目標」！");
+            return;
+        }
+        if (startBlocks.length !== targets.size) {
+            showResult(false, `錯誤：方塊與目標數量不對等！（目前方塊：${startBlocks.length}個，目標：${targets.size}個）`);
+            return;
+        }
+
+        let startKey = serializeState(startBlocks);
+        let queue = [{ blocks: startBlocks, path: [] }];
+        let visited = new Set([startKey]);
+        
+        const directions = [
+            { name: '上 ↑', dr: -1, dc: 0, code: 'Up' },
+            { name: '下 ↓', dr: 1, dc: 0, code: 'Down' },
+            { name: '左 ←', dr: 0, dc: -1, code: 'Left' },
+            { name: '右 →', dr: 0, dc: 1, code: 'Right' }
+        ];
+
+        // 沒有限制的 BFS 迴圈
+        while (queue.length > 0) {
+            let curr = queue.shift();
+            let isWin = curr.blocks.every(b => targets.has(`${b.r},${b.c}`));
+            if (isWin) {
+                showResult(true, curr.path);
+                return;
+            }
+
+            for (let d of directions) {
+                let nextBlocks = moveBlocks(curr.blocks, d.code, d.dr, d.dc, walls);
+                let nextKey = serializeState(nextBlocks);
+
+                if (!visited.has(nextKey)) {
+                    visited.add(nextKey);
+                    queue.push({
+                        blocks: nextBlocks,
+                        path: [...curr.path, d.name]
+                    });
+                }
+            }
+        }
+
+        showResult(false, "計算完畢：窮舉所有可能後，此盤面配置確定【無解】。");
+    }
+
+    function showResult(success, data) {
+        resultBox.style.display = 'block';
+        if (success) {
+            resultBox.classList.remove('error');
+            resultTitle.innerText = `✅ 求解成功！最少需要 ${data.length} 步`;
+            
+            if (data.length === 0) {
+                resultContent.innerHTML = "方塊已經全部在目標上了，不需要移動！";
+            } else {
+                let html = '<p>請依照以下順序滑動畫面：</p><div class="path-sequence">';
+                data.forEach(step => {
+                    html += `<span class="path-step">${step}</span>`;
+                });
+                html += '</div>';
+                resultContent.innerHTML = html;
+            }
+        } else {
+            resultBox.classList.add('error');
+            resultTitle.innerText = "❌ 無法通關";
+            resultContent.innerHTML = `<p>${data}</p>`;
+        }
+        resultBox.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    document.getElementById('btn-solve').addEventListener('click', () => {
+        resultBox.style.display = 'block';
+        resultBox.classList.remove('error');
+        resultTitle.innerText = "計算中...";
+        resultContent.innerHTML = "正在尋找最優解（複雜關卡可能需要數秒鐘）...";
+        setTimeout(solveKesto, 50);
+    });
+
+    initGridData();
+    buildGridDOM();
+    updateGridUI();
+</script>
+
+</body>
+</html>
