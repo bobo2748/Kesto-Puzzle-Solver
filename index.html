@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kesto 最佳解計算器 (Pro 暗黑版)</title>
+    <title>Kesto 最佳解計算器 (背景多執行緒版)</title>
     <style>
         /* 深色模式背景與字體 */
         body {
@@ -67,13 +67,12 @@
             padding: 10px;
             border-radius: 12px;
             width: fit-content;
-            user-select: none; /* 防止拖曳時反白文字 */
+            user-select: none;
             box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
         }
         
-        /* 🎨 根據截圖還原的完美配色 */
         .cell {
-            background-color: #333333; /* 預設的深灰色格子 */
+            background-color: #333333; 
             width: 48px;
             height: 48px;
             border-radius: 8px;
@@ -82,30 +81,16 @@
             align-items: center;
             justify-content: center;
             transition: background-color 0.1s, border 0.1s;
-            box-sizing: border-box; /* 確保加邊框時不會變大 */
+            box-sizing: border-box; 
         }
         
-        .wall { background-color: #5a5a5a; } /* 淺灰色牆壁 */
-        
-        .block { 
-            background-color: #f7a040; /* 經典 Kesto 橘色 */ 
-            box-shadow: inset 0 0 5px rgba(255,255,255,0.2);
-        }
-        
-        .target { 
-            background-color: transparent; 
-            border: 3px solid #3b82f6; /* 藍色目標邊框 */ 
-        }
-        
-        .target.block { 
-            /* 當方塊與目標重疊時：橘色方塊 + 藍色邊框 */
-            background-color: #f7a040; 
-            border: 3px solid #3b82f6; 
-        }
+        .wall { background-color: #5a5a5a; } 
+        .block { background-color: #f7a040; box-shadow: inset 0 0 5px rgba(255,255,255,0.2); }
+        .target { background-color: transparent; border: 3px solid #3b82f6; }
+        .target.block { background-color: #f7a040; border: 3px solid #3b82f6; }
 
         /* 按鈕與結果區 */
         button {
-            background-color: #2ecc71;
             color: white;
             border: none;
             padding: 12px 24px;
@@ -117,10 +102,17 @@
             transition: 0.2s;
             margin: 5px;
         }
-        button:hover { background-color: #27ae60; transform: translateY(-2px); }
-        button:disabled { background-color: #555555; color: #888; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .btn-start { background-color: #2ecc71; }
+        .btn-start:hover { background-color: #27ae60; transform: translateY(-2px); }
+        
         .btn-danger { background-color: #e74c3c; }
-        .btn-danger:hover { background-color: #c0392b; }
+        .btn-danger:hover { background-color: #c0392b; transform: translateY(-2px); }
+        
+        .btn-stop { background-color: #f39c12; display: none; }
+        .btn-stop:hover { background-color: #d68910; transform: translateY(-2px); }
+        
+        button:disabled { background-color: #555555; color: #888; cursor: not-allowed; transform: none; box-shadow: none; }
         
         #result {
             margin-top: 20px;
@@ -137,9 +129,24 @@
             display: none;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             border: 1px solid #444;
+            word-wrap: break-word;
         }
         .step-success { color: #2ecc71; font-size: 1.3em; margin-bottom: 10px; }
         .step-time { color: #aaaaaa; font-size: 0.9em; margin-bottom: 15px; }
+
+        /* 加載動畫 */
+        .loader {
+            border: 4px solid #444;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -174,31 +181,27 @@
     <div class="grid" id="grid"></div>
 
     <div>
-        <button id="solveBtn" onclick="startSolving()">🚀 計算最優解</button>
-        <button class="btn-danger" onclick="clearBoard()">🗑️ 清空盤面</button>
+        <button id="solveBtn" class="btn-start" onclick="startSolving()">🚀 計算最優解</button>
+        <button id="stopBtn" class="btn-stop" onclick="stopSolving()">🛑 強制停止</button>
+        <button id="clearBtn" class="btn-danger" onclick="clearBoard()">🗑️ 清空盤面</button>
     </div>
 
     <div id="result"></div>
 
     <script>
-        // 全域變數
         let W = 8;
         let H = 8;
         let isMouseDown = false;
+        let worker = null; // 用來存放背景 AI 執行緒
         
         let walls = new Set();
         let targets = new Set();
         let blocks = new Set();
 
-        // 初始化/切換盤面
         function changeGridSize() {
             const size = parseInt(document.getElementById('gridSize').value);
-            W = size;
-            H = size;
-            
-            walls.clear();
-            targets.clear();
-            blocks.clear();
+            W = size; H = size;
+            walls.clear(); targets.clear(); blocks.clear();
             document.getElementById('result').style.display = 'none';
             
             const grid = document.getElementById('grid');
@@ -211,166 +214,195 @@
                 cell.className = 'cell';
                 cell.dataset.index = i;
                 
-                cell.addEventListener('mousedown', (e) => {
-                    isMouseDown = true;
-                    applyTool(i, cell);
-                });
-                cell.addEventListener('mouseenter', (e) => {
-                    if (isMouseDown) applyTool(i, cell);
-                });
-                
+                cell.addEventListener('mousedown', () => { isMouseDown = true; applyTool(i, cell); });
+                cell.addEventListener('mouseenter', () => { if (isMouseDown) applyTool(i, cell); });
                 grid.appendChild(cell);
             }
         }
 
-        // 偵測滑鼠放開
         document.addEventListener('mouseup', () => { isMouseDown = false; });
 
-        // 套用工具邏輯
         function applyTool(index, cell) {
             const tool = document.querySelector('input[name="tool"]:checked').value;
-            
-            if (tool === 'eraser') {
-                walls.delete(index);
-                targets.delete(index);
-                blocks.delete(index);
-            } else if (tool === 'wall') {
-                targets.delete(index); blocks.delete(index);
-                walls.add(index);
-            } else if (tool === 'target') {
-                walls.delete(index);
-                targets.add(index);
-            } else if (tool === 'block') {
-                walls.delete(index);
-                blocks.add(index);
-            }
+            if (tool === 'eraser') { walls.delete(index); targets.delete(index); blocks.delete(index); }
+            else if (tool === 'wall') { targets.delete(index); blocks.delete(index); walls.add(index); }
+            else if (tool === 'target') { walls.delete(index); targets.add(index); }
+            else if (tool === 'block') { walls.delete(index); blocks.add(index); }
             updateCellVisuals(index, cell);
         }
 
-        // 更新畫面顯示 (還原 Kesto 色彩疊加邏輯)
         function updateCellVisuals(index, cell) {
-            cell.className = 'cell'; // 重置為只有 .cell
+            cell.className = 'cell';
             if (walls.has(index)) cell.classList.add('wall');
             if (targets.has(index)) cell.classList.add('target');
             if (blocks.has(index)) cell.classList.add('block');
         }
 
-        // 清空按鈕
         function clearBoard() {
+            stopSolving(); // 清空時如果有在算，也要停下來
             walls.clear(); targets.clear(); blocks.clear();
             document.querySelectorAll('.cell').forEach((cell, i) => updateCellVisuals(i, cell));
             document.getElementById('result').style.display = 'none';
         }
 
-        // 載入時先產生一次預設 8x8 盤面
         window.onload = changeGridSize;
 
         // ==========================================
-        // 核心演算法：階段三 (降維查表法)
+        // 背景執行緒 (Web Worker) 的核心邏輯
         // ==========================================
-        function solveKestoStage3() {
-            if (blocks.size === 0 || targets.size === 0) return "請至少放置一個方塊與目標！";
-            if (blocks.size !== targets.size) return `錯誤：方塊數量 (${blocks.size}) 與目標數量 (${targets.size}) 不一致！`;
-
-            let startState = Array.from(blocks).sort((a, b) => a - b);
-            let targetStr = Array.from(targets).sort((a, b) => a - b).join(',');
-
-            if (startState.join(',') === targetStr) return "已經過關啦！步數：0 步";
-
-            const moveMaps = { 'Up': [], 'Down': [], 'Left': [], 'Right': [] };
-            for (let p = 0; p < W * H; p++) {
-                let r = Math.floor(p / W);
-                let c = p % W;
+        // 為了不依賴外部檔案，我們把整個 AI 運算打包成 Blob 在背景執行
+        function workerLogic() {
+            self.onmessage = function(e) {
+                const { W, H, wallsArr, targetsArr, blocksArr } = e.data;
+                const walls = new Set(wallsArr);
                 
-                moveMaps['Up'][p] = (r > 0 && !walls.has(p - W)) ? p - W : p;
-                moveMaps['Down'][p] = (r < H - 1 && !walls.has(p + W)) ? p + W : p;
-                moveMaps['Left'][p] = (c > 0 && !walls.has(p - 1)) ? p - 1 : p;
-                moveMaps['Right'][p] = (c < W - 1 && !walls.has(p + 1)) ? p + 1 : p;
-            }
+                let startState = blocksArr.sort((a, b) => a - b);
+                let targetStr = targetsArr.sort((a, b) => a - b).join(',');
 
-            function getNextState(state, dirName) {
-                let newBlocks = [];
-                let moveMap = moveMaps[dirName];
-                let iterator = (dirName === 'Down' || dirName === 'Right') ? state.slice().reverse() : state;
-                
-                for (let p of iterator) {
-                    let nxt = moveMap[p];
-                    if (nxt !== p && !newBlocks.includes(nxt)) {
-                        newBlocks.push(nxt);
-                    } else {
-                        newBlocks.push(p);
-                    }
-                }
-                return newBlocks.sort((a, b) => a - b);
-            }
-
-            let queue = [ { state: startState, pathNode: null } ];
-            let head = 0; 
-            let visited = new Set([startState.join(',')]);
-            
-            const dirs = ['Up', 'Down', 'Left', 'Right'];
-            const dirNames = { 'Up': '上 ↑', 'Down': '下 ↓', 'Left': '左 ←', 'Right': '右 →' };
-
-            let startTime = performance.now();
-
-            while (head < queue.length) {
-                let current = queue[head++];
-                let currState = current.state;
-                let pathNode = current.pathNode;
-
-                if (currState.join(',') === targetStr) {
-                    let finalPath = [];
-                    let currNode = pathNode;
-                    while (currNode !== null) {
-                        finalPath.push(dirNames[currNode.dir]);
-                        currNode = currNode.prev;
-                    }
-                    let endTime = performance.now();
-                    return { path: finalPath.reverse(), time: (endTime - startTime) };
+                if (startState.join(',') === targetStr) {
+                    self.postMessage({ path: [], time: 0 });
+                    return;
                 }
 
-                for (let dir of dirs) {
-                    let nextState = getNextState(currState, dir);
-                    let nextStr = nextState.join(',');
-                    
-                    if (!visited.has(nextStr)) {
-                        visited.add(nextStr);
-                        queue.push({ state: nextState, pathNode: { dir: dir, prev: pathNode } });
+                // 建立導航快取
+                const moveMaps = { 'Up': [], 'Down': [], 'Left': [], 'Right': [] };
+                for (let p = 0; p < W * H; p++) {
+                    let r = Math.floor(p / W);
+                    let c = p % W;
+                    moveMaps['Up'][p] = (r > 0 && !walls.has(p - W)) ? p - W : p;
+                    moveMaps['Down'][p] = (r < H - 1 && !walls.has(p + W)) ? p + W : p;
+                    moveMaps['Left'][p] = (c > 0 && !walls.has(p - 1)) ? p - 1 : p;
+                    moveMaps['Right'][p] = (c < W - 1 && !walls.has(p + 1)) ? p + 1 : p;
+                }
+
+                function getNextState(state, dirName) {
+                    let newBlocks = [];
+                    let moveMap = moveMaps[dirName];
+                    let iterator = (dirName === 'Down' || dirName === 'Right') ? state.slice().reverse() : state;
+                    for (let p of iterator) {
+                        let nxt = moveMap[p];
+                        if (nxt !== p && !newBlocks.includes(nxt)) newBlocks.push(nxt);
+                        else newBlocks.push(p);
+                    }
+                    return newBlocks.sort((a, b) => a - b);
+                }
+
+                let queue = [ { state: startState, pathNode: null } ];
+                let head = 0; 
+                let visited = new Set([startState.join(',')]);
+                const dirs = ['Up', 'Down', 'Left', 'Right'];
+                const dirNames = { 'Up': '上 ↑', 'Down': '下 ↓', 'Left': '左 ←', 'Right': '右 →' };
+
+                let startTime = performance.now();
+                // 🛑 記憶體保險絲：防止瀏覽器崩潰 (設定在 150 萬種狀態)
+                const MAX_STATES = 1500000; 
+
+                while (head < queue.length) {
+                    // 保險絲檢查
+                    if (visited.size > MAX_STATES) {
+                        self.postMessage({ error: `記憶體超載保險絲啟動！已探索超過 ${MAX_STATES} 種可能狀態。此盤面過於龐大或複雜，請確認有無排錯！` });
+                        return;
+                    }
+
+                    let current = queue[head++];
+                    let currState = current.state;
+                    let pathNode = current.pathNode;
+
+                    if (currState.join(',') === targetStr) {
+                        let finalPath = [];
+                        let currNode = pathNode;
+                        while (currNode !== null) {
+                            finalPath.push(dirNames[currNode.dir]);
+                            currNode = currNode.prev;
+                        }
+                        let endTime = performance.now();
+                        self.postMessage({ path: finalPath.reverse(), time: (endTime - startTime) });
+                        return;
+                    }
+
+                    for (let dir of dirs) {
+                        let nextState = getNextState(currState, dir);
+                        let nextStr = nextState.join(',');
+                        
+                        if (!visited.has(nextStr)) {
+                            visited.add(nextStr);
+                            queue.push({ state: nextState, pathNode: { dir: dir, prev: pathNode } });
+                        }
                     }
                 }
-            }
-            return { error: "找不到解答 (無解)" };
+                self.postMessage({ error: "探索完所有可能性，找不到解答 (無解)" });
+            };
         }
 
-        // 點擊計算按鈕
-        function startSolving() {
-            const btn = document.getElementById('solveBtn');
-            const resDiv = document.getElementById('result');
-            
-            btn.innerText = "⏳ 計算中...";
-            btn.disabled = true;
-            resDiv.style.display = 'none';
+        // ==========================================
+        // 按鈕控制與背景通訊邏輯
+        // ==========================================
+        function toggleUI(isComputing) {
+            document.getElementById('solveBtn').style.display = isComputing ? 'none' : 'inline-block';
+            document.getElementById('stopBtn').style.display = isComputing ? 'inline-block' : 'none';
+            document.getElementById('clearBtn').disabled = isComputing;
+            document.getElementById('gridSize').disabled = isComputing;
+        }
 
-            setTimeout(() => {
-                let result = solveKestoStage3();
-                
+        function stopSolving() {
+            if (worker) {
+                worker.terminate(); // 殺掉背景執行緒
+                worker = null;
+                toggleUI(false);
+                const resDiv = document.getElementById('result');
                 resDiv.style.display = 'block';
-                if (typeof result === 'string') {
-                    resDiv.innerHTML = `⚠️ ${result}`;
-                } else if (result.error) {
+                resDiv.innerHTML = `⚠️ <b>已手動終止計算！</b>`;
+            }
+        }
+
+        function startSolving() {
+            if (blocks.size === 0 || targets.size === 0) {
+                alert("請至少放置一個方塊與目標！"); return;
+            }
+            if (blocks.size !== targets.size) {
+                alert(`錯誤：方塊數量 (${blocks.size}) 與目標數量 (${targets.size}) 不一致！`); return;
+            }
+
+            const resDiv = document.getElementById('result');
+            resDiv.style.display = 'block';
+            resDiv.innerHTML = `<span class="loader"></span> 正在背景拼命計算中...網頁不會卡住，請安心等待！`;
+            
+            toggleUI(true); // 切換到「計算中」的 UI
+
+            // 將 Worker 邏輯轉換為 URL
+            const blob = new Blob(["(" + workerLogic.toString() + ")()"], { type: "application/javascript" });
+            const workerUrl = URL.createObjectURL(blob);
+            
+            // 啟動 Worker
+            worker = new Worker(workerUrl);
+            
+            // 將現在的盤面資料丟進背景運算
+            worker.postMessage({
+                W: W, H: H,
+                wallsArr: Array.from(walls),
+                targetsArr: Array.from(targets),
+                blocksArr: Array.from(blocks)
+            });
+
+            // 接收背景算完的回傳結果
+            worker.onmessage = function(e) {
+                let result = e.data;
+                toggleUI(false);
+                
+                if (result.error) {
                     resDiv.innerHTML = `❌ ${result.error}`;
                 } else {
                     resDiv.innerHTML = `
                         <div class="step-success">✅ 破解成功！最短步數為 ${result.path.length} 步</div>
                         <div class="step-time">⏱️ 運算耗時：${(result.time / 1000).toFixed(3)} 秒</div>
                         👉 <b>走法順序：</b><br><br>
-                        ${result.path.join(' ➔ ')}
+                        ${result.path.length > 0 ? result.path.join(' ➔ ') : '不用動，已經過關了！'}
                     `;
                 }
                 
-                btn.innerText = "🚀 計算最優解";
-                btn.disabled = false;
-            }, 50);
+                worker.terminate(); // 用完即丟，釋放資源
+                worker = null;
+            };
         }
     </script>
 </body>
